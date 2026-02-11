@@ -16,23 +16,23 @@
     <div id="mission-screen" class="overlay-screen">
         <h1 style="color: var(--ui-yellow); letter-spacing: 4px;">MISSION SELECT</h1>
         <div class="mission-grid">
-            <div class="selectable-card" id="miss-exterm" onclick="selectMission('exterm')">
+            <div class="selectable-card" id="miss-exterm">
                 <h3>EXTERMINATE</h3>
                 <p>Destroy all Bug Holes. Use Grenades [G] to seal them from a distance.</p>
             </div>
-            <div class="selectable-card" id="miss-icbm" onclick="selectMission('icbm')">
+            <div class="selectable-card" id="miss-icbm">
                 <h3>ICBM LAUNCH</h3>
                 <p>Secure the silo. Manual terminal input required.</p>
             </div>
         </div>
-        <button id="mission-next-btn" disabled onclick="showLoadout()">CONFIRM MISSION</button>
+        <button id="mission-next-btn" disabled>CONFIRM MISSION</button>
     </div>
 
     <!-- Stratagem Loadout Screen -->
     <div id="loadout-screen" class="overlay-screen hidden">
         <h1 style="color: var(--ui-yellow); letter-spacing: 4px;">STRATAGEM LOADOUT</h1>
         <div class="stratagem-grid" id="loadout-grid"></div>
-        <button id="deploy-btn" disabled onclick="startDeployment()">PREPARE FOR DROP</button>
+        <button id="deploy-btn" disabled>PREPARE FOR DROP</button>
     </div>
 
     <div id="ui-layer">
