@@ -1,178 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Orbital Drop: Vanguard</title>
-    <style>
-        :root {
-            --ui-yellow: #fde047;
-            --ui-bg: rgba(10, 10, 10, 0.95);
-            --ui-red: #ef4444;
-            --ui-blue: #3b82f6;
-            --ui-green: #4ade80;
-            --ui-purple: #a855f7;
-        }
-
-        body, html {
-            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
-            background-color: #050505; font-family: 'Segoe UI', Tahoma, sans-serif;
-            color: white; user-select: none;
-        }
-
-        #game-container {
-            position: relative; width: 100vw; height: 100vh;
-            display: flex; justify-content: center; align-items: center; background: #0a0a0a;
-        }
-
-        canvas { display: block; cursor: crosshair; }
-
-        #ui-layer {
-            position: absolute; inset: 0; pointer-events: none;
-            padding: 20px; display: flex; flex-direction: column; z-index: 10;
-        }
-
-        .stats-box {
-            background: var(--ui-bg); padding: 10px 20px; border-left: 4px solid var(--ui-yellow);
-            text-transform: uppercase; letter-spacing: 2px; font-size: 0.9rem; pointer-events: auto;
-        }
-
-        #stratagem-ui {
-            background: var(--ui-bg); padding: 15px; border: 1px solid rgba(255, 255, 255, 0.1);
-            width: 360px; backdrop-filter: blur(10px); opacity: 0; transform: translateY(20px);
-            transition: all 0.2s ease-out; margin-top: auto;
-        }
-
-        #stratagem-ui.visible { opacity: 1; transform: translateY(0); }
-
-        .stratagem-item { margin-bottom: 12px; font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; }
-        .stratagem-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .key-box { width: 16px; height: 16px; border: 1px solid rgba(255,255,255,0.4); display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 9px; margin-left: 2px; }
-        .key-box.hit { background: var(--ui-yellow); color: black; border-color: var(--ui-yellow); }
-
-        .bar-container { width: 100%; height: 6px; background: #222; margin: 2px 0; border-radius: 1px; overflow: hidden; }
-        .bar-fill { height: 100%; width: 100%; transition: width 0.1s linear; }
-
-        #sequence-display {
-            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
-            display: none; flex-direction: column; align-items: center; gap: 12px;
-            background: rgba(0,0,0,0.85); padding: 20px; border: 2px solid var(--ui-yellow);
-            box-shadow: 0 0 20px rgba(253, 224, 71, 0.3);
-            pointer-events: none;
-        }
-
-        .overlay-screen {
-            position: absolute; inset: 0; background: rgba(5, 5, 5, 0.98);
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            z-index: 100; text-align: center; padding: 40px;
-        }
-
-        #mission-screen { z-index: 110; }
-
-        .mission-grid, .stratagem-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin: 30px 0; max-width: 800px; }
-        .stratagem-grid { grid-template-columns: repeat(4, 1fr); }
-
-        .selectable-card { background: #111; border: 2px solid #333; padding: 20px; cursor: pointer; transition: 0.2s; text-align: left; }
-        .selectable-card h3 { margin-top: 0; color: var(--ui-yellow); }
-        .selectable-card.selected { border-color: var(--ui-yellow); background: #2a2a10; }
-        .selectable-card:hover { background: #1a1a1a; border-color: #555; }
-
-        #objective-tracker {
-            position: absolute; top: 80px; left: 20px; background: rgba(0,0,0,0.5); padding: 10px;
-            border-left: 3px solid var(--ui-blue); font-size: 0.8rem;
-        }
-
-        #minimap-container {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 600px; height: 600px; background: rgba(5, 10, 5, 0.9);
-            border: 3px solid var(--ui-yellow); display: none; pointer-events: none;
-            box-shadow: 0 0 50px rgba(0,0,0,1); z-index: 50;
-        }
-        #minimap-container.active { display: block; }
-
-        button { padding: 15px 45px; background: var(--ui-yellow); color: black; border: none; font-weight: bold; font-size: 1.1rem; cursor: pointer; text-transform: uppercase; }
-        button:disabled { background: #444; cursor: not-allowed; }
-
-        .hidden { display: none !important; }
-    </style>
-</head>
-<body>
-
-<div id="game-container">
-    <canvas id="gameCanvas"></canvas>
-
-    <!-- Mission Selection Screen -->
-    <div id="mission-screen" class="overlay-screen">
-        <h1 style="color: var(--ui-yellow); letter-spacing: 4px;">MISSION SELECT</h1>
-        <div class="mission-grid">
-            <div class="selectable-card" id="miss-exterm" onclick="selectMission('exterm')">
-                <h3>EXTERMINATE</h3>
-                <p>Destroy all Bug Holes. Use Grenades [G] to seal them from a distance.</p>
-            </div>
-            <div class="selectable-card" id="miss-icbm" onclick="selectMission('icbm')">
-                <h3>ICBM LAUNCH</h3>
-                <p>Secure the silo. Manual terminal input required.</p>
-            </div>
-        </div>
-        <button id="mission-next-btn" disabled onclick="showLoadout()">CONFIRM MISSION</button>
-    </div>
-
-    <!-- Stratagem Loadout Screen -->
-    <div id="loadout-screen" class="overlay-screen hidden">
-        <h1 style="color: var(--ui-yellow); letter-spacing: 4px;">STRATAGEM LOADOUT</h1>
-        <div class="stratagem-grid" id="loadout-grid"></div>
-        <button id="deploy-btn" disabled onclick="startDeployment()">PREPARE FOR DROP</button>
-    </div>
-
-    <div id="ui-layer">
-        <div style="display: flex; justify-content: space-between; pointer-events: none;">
-            <div class="stats-box">
-                <div>TIME: <span id="timer-val">00:00</span></div>
-                <div>SCORE: <span id="score-val">0</span></div>
-            </div>
-            <div class="stats-box" style="border-left: none; border-right: 4px solid var(--ui-yellow);">
-                <div id="weapon-name">LIBERATOR AR</div>
-            </div>
-        </div>
-
-        <div id="objective-tracker">
-            <div style="color: var(--ui-blue); font-weight: bold; margin-bottom: 5px;">OBJECTIVE</div>
-            <div id="obj-text">N/A</div>
-        </div>
-
-        <!-- Fullscreen Map -->
-        <div id="minimap-container">
-            <div style="color:var(--ui-yellow); text-align:center; padding:10px; font-weight:bold; background:rgba(255,255,255,0.05)">TACTICAL MAP [TAB]</div>
-            <canvas id="minimapCanvas" width="600" height="600"></canvas>
-        </div>
-
-        <div id="sequence-display">
-            <div id="seq-title" style="color: var(--ui-yellow); font-size: 0.7rem; font-weight: bold; margin-bottom: 5px;">INPUTTING...</div>
-            <div id="seq-keys" style="display: flex; gap: 8px;"></div>
-        </div>
-
-        <div class="hud-bottom" style="display: flex; justify-content: space-between; align-items: flex-end; width: 100%; pointer-events: none; margin-top: auto;">
-            <div id="stratagem-ui">
-                <div style="margin-bottom: 10px; font-weight: bold; color: var(--ui-yellow); font-size: 0.8rem;">STRATAGEM READOUT [CTRL]</div>
-                <div id="active-stratagem-list"></div>
-            </div>
-
-            <div class="stats-box" style="width: 280px; pointer-events: auto;">
-                <div style="display: flex; justify-content: space-between;"><span>HEALTH</span><span id="health-text">100/100</span></div>
-                <div class="bar-container"><div id="health-fill" class="bar-fill" style="background: var(--ui-red);"></div></div>
-                
-                <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span>GRENADE [G]</span><span id="grenade-text">READY</span></div>
-                <div class="bar-container"><div id="grenade-fill" class="bar-fill" style="background: var(--ui-green);"></div></div>
-
-                <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span>AMMO</span><span id="ammo-text">30/30</span></div>
-                <div class="bar-container"><div id="ammo-fill" class="bar-fill" style="background: var(--ui-yellow);"></div></div>
-                <div id="reload-indicator" style="color: var(--ui-red); font-size: 0.7rem; font-weight: bold; height: 1.2em;"></div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
 /**
  * ORBITAL DROP: VANGUARD - TACTICAL UPDATE
  */
@@ -240,6 +65,18 @@ const player = {
 
 const cooldowns = {};
 
+function bindMenuEventHandlers() {
+    const missionGrid = document.querySelector('.mission-grid');
+    missionGrid.addEventListener('click', (event) => {
+        const card = event.target.closest('[data-mission]');
+        if (!card) return;
+        selectMission(card.dataset.mission);
+    });
+
+    document.getElementById('mission-next-btn').addEventListener('click', showLoadout);
+    document.getElementById('deploy-btn').addEventListener('click', startDeployment);
+}
+
 // UI Navigation
 function selectMission(id) {
     selectedMissionId = id;
@@ -254,10 +91,11 @@ function showLoadout() {
     const grid = document.getElementById('loadout-grid');
     grid.innerHTML = '';
     ALL_STRATAGEMS.forEach(s => {
-        const card = document.createElement('div');
+        const card = document.createElement('button');
+        card.type = 'button';
         card.className = 'selectable-card';
         card.innerHTML = `<div style="font-weight:bold; color:var(--ui-yellow); font-size:0.8rem;">${s.name}</div>`;
-        card.onclick = () => toggleStratSelection(s.id, card);
+        card.addEventListener('click', () => toggleStratSelection(s.id, card));
         grid.appendChild(card);
     });
 }
@@ -700,8 +538,12 @@ window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.cli
 window.addEventListener('mousedown', () => mouse.down = true);
 window.addEventListener('mouseup', () => mouse.down = false);
 window.addEventListener('resize', resize);
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindMenuEventHandlers);
+} else {
+    bindMenuEventHandlers();
+}
+
 function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 resize();
-</script>
-</body>
-</html>
