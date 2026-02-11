@@ -66,8 +66,13 @@ const player = {
 const cooldowns = {};
 
 function bindMenuEventHandlers() {
-    document.getElementById('miss-exterm').addEventListener('click', () => selectMission('exterm'));
-    document.getElementById('miss-icbm').addEventListener('click', () => selectMission('icbm'));
+    const missionGrid = document.querySelector('.mission-grid');
+    missionGrid.addEventListener('click', (event) => {
+        const card = event.target.closest('[data-mission]');
+        if (!card) return;
+        selectMission(card.dataset.mission);
+    });
+
     document.getElementById('mission-next-btn').addEventListener('click', showLoadout);
     document.getElementById('deploy-btn').addEventListener('click', startDeployment);
 }
@@ -86,7 +91,8 @@ function showLoadout() {
     const grid = document.getElementById('loadout-grid');
     grid.innerHTML = '';
     ALL_STRATAGEMS.forEach(s => {
-        const card = document.createElement('div');
+        const card = document.createElement('button');
+        card.type = 'button';
         card.className = 'selectable-card';
         card.innerHTML = `<div style="font-weight:bold; color:var(--ui-yellow); font-size:0.8rem;">${s.name}</div>`;
         card.addEventListener('click', () => toggleStratSelection(s.id, card));
@@ -532,6 +538,12 @@ window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.cli
 window.addEventListener('mousedown', () => mouse.down = true);
 window.addEventListener('mouseup', () => mouse.down = false);
 window.addEventListener('resize', resize);
-bindMenuEventHandlers();
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindMenuEventHandlers);
+} else {
+    bindMenuEventHandlers();
+}
+
 function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 resize();
