@@ -227,7 +227,7 @@ function generateWorld() {
     groundTexture = document.createElement('canvas');
     groundTexture.width = 512; groundTexture.height = 512;
     const gctx = groundTexture.getContext('2d');
-    gctx.fillStyle = '#A3623A'; gctx.fillRect(0,0,512,512);
+    gctx.fillStyle = '#a29308'; gctx.fillRect(0,0,512,512);
     for(let i=0; i<3000; i++) {
         const s = Math.random()*20;
         gctx.fillStyle = `rgba(0,0,0,${Math.random()*0.1})`;
@@ -661,7 +661,37 @@ function draw() {
         if(bh.health > 0) { ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2; ctx.stroke(); }
     });
 
-    obstacles.forEach(o => { ctx.fillStyle = '#151515'; ctx.beginPath(); ctx.arc(o.x, o.y, o.radius, 0, Math.PI*2); ctx.fill(); });
+    obstacles.forEach(o => {
+    ctx.save();
+    ctx.translate(o.x, o.y);
+
+    // Base rock shape
+    ctx.beginPath();
+    ctx.moveTo(o.points[0].x, o.points[0].y);
+    for (let i = 1; i < o.points.length; i++) {
+        ctx.lineTo(o.points[i].x, o.points[i].y);
+    }
+    ctx.closePath();
+
+    // Subtle gradient shading
+    const gradient = ctx.createRadialGradient(
+        -o.radius * 0.3, -o.radius * 0.3, o.radius * 0.2,
+        0, 0, o.radius
+    );
+    gradient.addColorStop(0, '#6a6a6a');
+    gradient.addColorStop(1, '#2f2f2f');
+
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Optional edge highlight
+    ctx.strokeStyle = '#1f1f1f';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.restore();
+});
+
 
     if (missionState.id === 'icbm' && missionState.icbm) {
         missionState.icbm.terminals.forEach((t, idx) => {
