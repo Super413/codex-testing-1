@@ -133,11 +133,11 @@ function startDeployment() {
     });
     
     const objectiveCodeLengths = {
-        extraction: 4,
-        terminalA: 3,
-        terminalB: 4,
-        arm: 3,
-        launch: 6
+        extraction: 8
+        terminalA: 6
+        terminalB: 6
+        arm: 8,
+        launch: 10
     };
 
     missionState = {
