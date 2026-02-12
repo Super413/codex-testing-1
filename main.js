@@ -757,11 +757,56 @@ function draw() {
 }
 
 function drawMinimap() {
-    mCtx.fillStyle = '#050805'; mCtx.fillRect(0,0,600,600);
-    const s = 600 / CONFIG.world.width;
-    outposts.forEach(o => { mCtx.fillStyle = 'rgba(239, 68, 68, 0.2)'; mCtx.beginPath(); mCtx.arc(o.x*s, o.y*s, o.radius*s, 0, Math.PI*2); mCtx.fill(); });
-    bugHoles.forEach(bh => { if(bh.health > 0) { mCtx.fillStyle='#ef4444'; mCtx.fillRect(bh.x*s-2, bh.y*s-2, 4, 4); } });
-    mCtx.fillStyle='#fde047'; mCtx.beginPath(); mCtx.arc(player.x*s, player.y*s, 5, 0, Math.PI*2); mCtx.fill();
+    mCtx.fillStyle = '#050805';
+    mCtx.fillRect(0, 0, 600, 600);
+    const scale = 600 / CONFIG.world.width;
+
+    outposts.forEach(o => {
+        mCtx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+        mCtx.beginPath();
+        mCtx.arc(o.x * scale, o.y * scale, o.radius * scale, 0, Math.PI * 2);
+        mCtx.fill();
+    });
+
+    bugHoles.forEach(bh => {
+        if (bh.health > 0) {
+            mCtx.fillStyle = '#ef4444';
+            mCtx.fillRect(bh.x * scale - 2, bh.y * scale - 2, 4, 4);
+        }
+    });
+
+    if (missionState.id === 'icbm' && missionState.icbm) {
+        missionState.icbm.terminals.forEach(t => {
+            mCtx.fillStyle = t.enabled ? '#22c55e' : '#60a5fa';
+            mCtx.beginPath();
+            mCtx.arc(t.x * scale, t.y * scale, 5, 0, Math.PI * 2);
+            mCtx.fill();
+        });
+
+        const silo = missionState.icbm.silo;
+        if (silo) {
+            mCtx.strokeStyle = '#93c5fd';
+            mCtx.lineWidth = 2;
+            mCtx.beginPath();
+            mCtx.arc(silo.x * scale, silo.y * scale, 9, 0, Math.PI * 2);
+            mCtx.stroke();
+            mCtx.lineWidth = 1;
+        }
+    }
+
+    if (missionState.extraction) {
+        mCtx.strokeStyle = '#4ade80';
+        mCtx.setLineDash([4, 3]);
+        mCtx.beginPath();
+        mCtx.arc(missionState.extraction.x * scale, missionState.extraction.y * scale, 8, 0, Math.PI * 2);
+        mCtx.stroke();
+        mCtx.setLineDash([]);
+    }
+
+    mCtx.fillStyle = '#fde047';
+    mCtx.beginPath();
+    mCtx.arc(player.x * scale, player.y * scale, 5, 0, Math.PI * 2);
+    mCtx.fill();
 }
 
 function gameLoop() { update(16.6); if(!mapOpen) draw(); requestAnimationFrame(gameLoop); }
@@ -820,6 +865,15 @@ function updateUI() {
 
 function renderTerminalSequence() {
     const keysDiv = document.getElementById('seq-keys');
+
+    if (sequenceTarget === 'OBJECTIVE' && objectiveInput) {
+        keysDiv.innerHTML = objectiveInput.code.map((k, i) => {
+            const cls = i < currentSequence.length ? 'key-box hit' : 'key-box';
+            return `<span class=\"${cls}\" style=\"width:30px;height:30px;font-size:1.2rem\">${getKeyChar(k)}</span>`;
+        }).join('');
+        return;
+    }
+
     keysDiv.innerHTML = currentSequence.map((k) => `<span class="key-box hit" style="width:30px;height:30px;font-size:1.2rem">${getKeyChar(k)}</span>`).join('');
 }
 
