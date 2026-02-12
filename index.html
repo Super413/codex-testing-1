@@ -24,6 +24,10 @@
                 <h3>ICBM LAUNCH</h3>
                 <p>Secure the silo. Manual terminal input required.</p>
             </button>
+            <button class="selectable-card" id="miss-blackbox" type="button" data-mission="blackbox">
+                <h3>BLACK BOX RETRIEVAL</h3>
+                <p>Recover 3 data cores from outposts and upload them at the relay uplink.</p>
+            </button>
         </div>
         <button id="mission-next-btn" disabled>CONFIRM MISSION</button>
     </div>
@@ -77,6 +81,7 @@
 
                 <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span>AMMO</span><span id="ammo-text">30/30</span></div>
                 <div class="bar-container"><div id="ammo-fill" class="bar-fill" style="background: var(--ui-yellow);"></div></div>
+                <div id="reserve-text" style="margin-top:6px; font-size:0.72rem; color:#d1d5db;">PRIMARY [1] / SUPPORT [2]</div>
                 <div id="reload-indicator" style="color: var(--ui-red); font-size: 0.7rem; font-weight: bold; height: 1.2em;"></div>
             </div>
         </div>
