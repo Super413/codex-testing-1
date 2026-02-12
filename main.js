@@ -56,6 +56,8 @@ let obstacles = [];
 let groundTexture = null;
 let mapOpen = false;
 let missionState = { id: 'exterm', complete: false };
+let missionFx = { launchFlash: 0 };
+let objectiveInput = null;
 
 const camera = { x: 0, y: 0 };
 const player = {
@@ -133,8 +135,21 @@ function startDeployment() {
     missionState = {
         id: selectedMissionId,
         complete: false,
+        extracted: false,
+        extraction: {
+            x: 0, y: 0, radius: 120, stage: 'LOCKED', defendTimer: 0,
+            code: ['ArrowUp', 'ArrowDown', 'ArrowRight', 'ArrowLeft']
+        },
         icbm: selectedMissionId === 'icbm'
-            ? { stage: 'ACTIVATE', progress: 0, required: 100, silo: null }
+            ? {
+                stage: 'ENABLE_TERMINALS',
+                terminals: [],
+                silo: null,
+                openingTimer: 0,
+                countdown: 0,
+                armCode: ['ArrowUp', 'ArrowRight', 'ArrowDown'],
+                launchCode: ['ArrowUp', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
+            }
             : null
     };
 
@@ -150,6 +165,7 @@ function getKeyChar(k) { return { 'ArrowUp':'↑', 'ArrowDown':'↓', 'ArrowLeft
 
 function generateWorld() {
     obstacles = []; outposts = []; bugHoles = []; enemies = []; objectives = [];
+    sentries = []; pods = []; bullets = []; particles = []; activeMarkers = []; eagleShadows = [];
     for (let i = 0; i < 100; i++) {
         const x = Math.random() * CONFIG.world.width;
         const y = Math.random() * CONFIG.world.height;
@@ -169,14 +185,27 @@ function generateWorld() {
         }
     }
 
+    missionState.extraction.x = 500 + Math.random() * (CONFIG.world.width - 1000);
+    missionState.extraction.y = 500 + Math.random() * (CONFIG.world.height - 1000);
+
     if (missionState.id === 'icbm' && missionState.icbm) {
         const silo = {
             x: CONFIG.world.width * 0.5 + (Math.random() - 0.5) * 500,
             y: CONFIG.world.height * 0.5 + (Math.random() - 0.5) * 500,
-            radius: 110
+            radius: 130
         };
         missionState.icbm.silo = silo;
         objectives.push({ type: 'icbm_terminal', ...silo });
+
+        for (let i = 0; i < 2; i++) {
+            missionState.icbm.terminals.push({
+                x: 500 + Math.random() * (CONFIG.world.width - 1000),
+                y: 500 + Math.random() * (CONFIG.world.height - 1000),
+                radius: 80,
+                enabled: false,
+                code: i === 0 ? ['ArrowUp', 'ArrowLeft', 'ArrowDown'] : ['ArrowRight', 'ArrowDown', 'ArrowLeft']
+            });
+        }
     }
 
     groundTexture = document.createElement('canvas');
@@ -239,6 +268,8 @@ function update(delta) {
             if (player.reloadProgress >= weapon.reloadTime) { player.ammo = weapon.magSize; player.isReloading = false; }
         }
     }
+
+    missionFx.launchFlash = Math.max(0, missionFx.launchFlash - delta / 1200);
 
     updateEnemies(delta);
     updateSentries(delta);
@@ -338,14 +369,14 @@ function executeImpact(m) {
         }
     }
     else if (s.type === 'eagle_strafe') {
-        const spacing = 110;
-        for (let i = -7; i <= 7; i++) {
+        const spacing = 120;
+        for (let i = 0; i < 14; i++) {
             setTimeout(() => {
-                const spread = (Math.random() - 0.5) * 80;
+                const spread = (Math.random() - 0.5) * 70;
                 const x = m.x + Math.cos(m.angle) * i * spacing + Math.cos(m.angle + Math.PI / 2) * spread;
                 const y = m.y + Math.sin(m.angle) * i * spacing + Math.sin(m.angle + Math.PI / 2) * spread;
                 explode(x, y, 80, s.damage);
-            }, (i + 7) * 55);
+            }, i * 55);
         }
     }
     else if (s.type === 'barrage') { for(let i=0; i<15; i++) setTimeout(() => explode(m.x + (Math.random()-0.5)*500, m.y + (Math.random()-0.5)*500, 200, s.damage), i*400); }
@@ -472,29 +503,117 @@ function updatePods(delta) {
     }
 }
 
-function updateMission(delta) {
-    if (missionState.complete) return;
 
-    if (missionState.id === 'icbm' && missionState.icbm?.silo) {
-        const silo = missionState.icbm.silo;
-        const dist = Math.hypot(player.x - silo.x, player.y - silo.y);
-        if (dist < silo.radius + 30) {
-            missionState.icbm.progress = Math.min(
-                missionState.icbm.required,
-                missionState.icbm.progress + delta * 0.02
-            );
-            if (missionState.icbm.progress >= missionState.icbm.required) {
-                missionState.icbm.stage = 'LAUNCHED';
+function findNearestInteractable() {
+    const options = [];
+    if (missionState.id === 'icbm' && missionState.icbm) {
+        const icbm = missionState.icbm;
+        if (icbm.stage === 'ENABLE_TERMINALS') {
+            icbm.terminals.forEach((t, idx) => {
+                if (!t.enabled) {
+                    options.push({
+                        x: t.x, y: t.y, radius: t.radius + 30,
+                        label: `TERMINAL ${idx + 1} OVERRIDE`,
+                        code: t.code,
+                        onComplete: () => { t.enabled = true; spawnParticles(t.x, t.y, '#22c55e', 40); }
+                    });
+                }
+            });
+        }
+        if (icbm.stage === 'ARM_SILO_CODE') {
+            options.push({
+                x: icbm.silo.x, y: icbm.silo.y, radius: icbm.silo.radius + 35,
+                label: 'ICBM ARM CODE',
+                code: icbm.armCode,
+                onComplete: () => { icbm.stage = 'OPENING_SILO'; icbm.openingTimer = 20000; spawnParticles(icbm.silo.x, icbm.silo.y, '#60a5fa', 60); }
+            });
+        }
+        if (icbm.stage === 'LAUNCH_CODE') {
+            options.push({
+                x: icbm.silo.x, y: icbm.silo.y, radius: icbm.silo.radius + 35,
+                label: 'ICBM LAUNCH AUTH',
+                code: icbm.launchCode,
+                onComplete: () => { icbm.stage = 'COUNTDOWN'; icbm.countdown = 10000; spawnParticles(icbm.silo.x, icbm.silo.y, '#facc15', 80); }
+            });
+        }
+    }
+
+    if (missionState.complete && !missionState.extracted && missionState.extraction.stage === 'AVAILABLE') {
+        const ex = missionState.extraction;
+        options.push({
+            x: ex.x, y: ex.y, radius: ex.radius + 30,
+            label: 'EXTRACTION BEACON',
+            code: ex.code,
+            onComplete: () => { ex.stage = 'DEFEND'; ex.defendTimer = 30000; spawnParticles(ex.x, ex.y, '#4ade80', 80); }
+        });
+    }
+
+    let nearest = null;
+    let best = Infinity;
+    options.forEach(o => {
+        const d = Math.hypot(player.x - o.x, player.y - o.y);
+        if (d < o.radius && d < best) { best = d; nearest = o; }
+    });
+    return nearest;
+}
+
+function beginObjectiveInput(interactable) {
+    sequenceTarget = 'OBJECTIVE';
+    currentSequence = [];
+    objectiveInput = interactable;
+    document.getElementById('seq-title').innerText = `${interactable.label} [ARROWS]`;
+    document.getElementById('sequence-display').style.display = 'flex';
+    renderTerminalSequence();
+}
+
+function updateMission(delta) {
+    if (!missionState.complete) {
+        if (missionState.id === 'icbm' && missionState.icbm) {
+            const icbm = missionState.icbm;
+            if (icbm.stage === 'ENABLE_TERMINALS' && icbm.terminals.every(t => t.enabled)) {
+                icbm.stage = 'ARM_SILO_CODE';
+                spawnParticles(icbm.silo.x, icbm.silo.y, '#60a5fa', 50);
+            }
+            if (icbm.stage === 'OPENING_SILO') {
+                icbm.openingTimer = Math.max(0, icbm.openingTimer - delta);
+                if (Math.random() < 0.15) spawnParticles(icbm.silo.x, icbm.silo.y, '#93c5fd', 4);
+                if (icbm.openingTimer <= 0) {
+                    icbm.stage = 'LAUNCH_CODE';
+                    spawnParticles(icbm.silo.x, icbm.silo.y, '#fbbf24', 40);
+                }
+            }
+            if (icbm.stage === 'COUNTDOWN') {
+                icbm.countdown = Math.max(0, icbm.countdown - delta);
+                if (Math.random() < 0.18) spawnParticles(icbm.silo.x + (Math.random() - 0.5) * 120, icbm.silo.y + 70, '#f97316', 3);
+                if (icbm.countdown <= 0) {
+                    icbm.stage = 'LAUNCHED';
+                    missionState.complete = true;
+                    score += 3500;
+                    missionFx.launchFlash = 1;
+                    for (let i = 0; i < 5; i++) setTimeout(() => explode(icbm.silo.x, icbm.silo.y - i * 120, 180, 900), i * 120);
+                    missionState.extraction.stage = 'AVAILABLE';
+                }
+            }
+        } else {
+            const alive = bugHoles.filter(h => h.health > 0).length;
+            if (alive === 0) {
                 missionState.complete = true;
-                score += 3000;
-                spawnParticles(silo.x, silo.y, '#facc15', 80);
+                score += 1500;
+                missionState.extraction.stage = 'AVAILABLE';
             }
         }
-    } else {
-        const alive = bugHoles.filter(h => h.health > 0).length;
-        if (alive === 0) {
-            missionState.complete = true;
-            score += 1500;
+    }
+
+    if (missionState.complete && !missionState.extracted) {
+        const ex = missionState.extraction;
+        if (ex.stage === 'DEFEND') {
+            ex.defendTimer = Math.max(0, ex.defendTimer - delta);
+            if (Math.random() < 0.15) spawnParticles(ex.x, ex.y, '#4ade80', 2);
+            if (ex.defendTimer <= 0) ex.stage = 'READY';
+        }
+        if (ex.stage === 'READY' && Math.hypot(player.x - ex.x, player.y - ex.y) < ex.radius) {
+            missionState.extracted = true;
+            score += 2000;
         }
     }
 }
@@ -528,6 +647,23 @@ function draw() {
 
     obstacles.forEach(o => { ctx.fillStyle = '#151515'; ctx.beginPath(); ctx.arc(o.x, o.y, o.radius, 0, Math.PI*2); ctx.fill(); });
 
+    if (missionState.id === 'icbm' && missionState.icbm) {
+        missionState.icbm.terminals.forEach((t, idx) => {
+            ctx.fillStyle = t.enabled ? '#16a34a' : '#1d4ed8';
+            ctx.beginPath();
+            ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.beginPath();
+            ctx.arc(t.x, t.y, t.radius + 12, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 12px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(`TERM ${idx + 1}`, t.x, t.y + 4);
+        });
+    }
+
     objectives.forEach(obj => {
         if (obj.type === 'icbm_terminal') {
             ctx.fillStyle = '#1d4ed8';
@@ -545,10 +681,24 @@ function draw() {
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 12px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText('ICBM TERMINAL', obj.x, obj.y - obj.radius - 28);
+            ctx.fillText('ICBM SILO', obj.x, obj.y - obj.radius - 28);
         }
     });
     
+    const ex = missionState.extraction;
+    if (missionState.complete && ex && !missionState.extracted) {
+        ctx.strokeStyle = ex.stage === 'READY' ? '#22c55e' : '#facc15';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(ex.x, ex.y, ex.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('EXTRACT', ex.x, ex.y + 4);
+    }
+
     pods.forEach(p => {
         ctx.fillStyle = p.color; ctx.beginPath(); ctx.rect(p.x-15, p.y-15, 30, 30); ctx.fill();
         ctx.fillStyle = 'white'; ctx.font = 'bold 10px monospace'; ctx.textAlign='center'; ctx.fillText('PICKUP', p.x, p.y+30);
@@ -597,6 +747,12 @@ function draw() {
     ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(player.isDiving ? Math.atan2(player.diveDir.y, player.diveDir.x) : player.angle);
     ctx.fillStyle = '#fde047'; ctx.beginPath(); ctx.roundRect(-15,-10,30,20,4); ctx.fill();
     ctx.fillStyle = '#000'; ctx.fillRect(-10, -8, 8, 16); ctx.restore();
+
+    if (missionFx.launchFlash > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${0.35 * missionFx.launchFlash})`;
+        ctx.fillRect(camera.x, camera.y, canvas.width, canvas.height);
+    }
+
     ctx.restore();
 }
 
@@ -621,17 +777,36 @@ function updateUI() {
     document.getElementById('score-val').innerText = score;
     document.getElementById('timer-val').innerText = new Date(Date.now() - startTime).toISOString().substr(14, 5);
     
-    if (missionState.id === 'icbm' && missionState.icbm) {
+    if (missionState.extracted) {
+        document.getElementById('obj-text').innerText = 'MISSION COMPLETE: EXTRACTION SUCCESSFUL';
+    } else if (missionState.id === 'icbm' && missionState.icbm) {
+        const icbm = missionState.icbm;
         if (missionState.complete) {
-            document.getElementById('obj-text').innerText = 'OBJECTIVE COMPLETE: ICBM LAUNCHED';
-        } else {
-            const pct = Math.floor((missionState.icbm.progress / missionState.icbm.required) * 100);
-            document.getElementById('obj-text').innerText = `ICBM TERMINAL UPLINK: ${pct}% (HOLD POSITION IN BLUE ZONE)`;
+            const ex = missionState.extraction;
+            if (ex.stage === 'AVAILABLE') document.getElementById('obj-text').innerText = 'OBJECTIVE COMPLETE: FIND EXTRACTION & INPUT BEACON CODE';
+            else if (ex.stage === 'DEFEND') document.getElementById('obj-text').innerText = `EXTRACTION DEFENSE: ${Math.ceil(ex.defendTimer / 1000)}s`;
+            else document.getElementById('obj-text').innerText = 'EXTRACTION READY: ENTER GREEN ZONE';
+        } else if (icbm.stage === 'ENABLE_TERMINALS') {
+            const enabled = icbm.terminals.filter(t => t.enabled).length;
+            document.getElementById('obj-text').innerText = `ICBM PREP: ENABLE TERMINALS (${enabled}/2) [PRESS E NEAR TERMINAL]`;
+        } else if (icbm.stage === 'ARM_SILO_CODE') {
+            document.getElementById('obj-text').innerText = 'ICBM PREP: GO TO SILO AND INPUT ARM CODE [E]';
+        } else if (icbm.stage === 'OPENING_SILO') {
+            document.getElementById('obj-text').innerText = `SILO OPENING... ${Math.ceil(icbm.openingTimer / 1000)}s`;
+        } else if (icbm.stage === 'LAUNCH_CODE') {
+            document.getElementById('obj-text').innerText = 'INPUT FINAL LAUNCH AUTH CODE AT SILO [E]';
+        } else if (icbm.stage === 'COUNTDOWN') {
+            document.getElementById('obj-text').innerText = `ICBM LAUNCH COUNTDOWN: ${Math.ceil(icbm.countdown / 1000)}s`;
         }
     } else {
         const alive = bugHoles.filter(h => h.health > 0).length;
-        const status = missionState.complete ? 'OBJECTIVE COMPLETE: EXTERMINATION' : `BUG HOLES REMAINING: ${alive}`;
-        document.getElementById('obj-text').innerText = status;
+        if (!missionState.complete) document.getElementById('obj-text').innerText = `BUG HOLES REMAINING: ${alive}`;
+        else {
+            const ex = missionState.extraction;
+            if (ex.stage === 'AVAILABLE') document.getElementById('obj-text').innerText = 'OBJECTIVE COMPLETE: FIND EXTRACTION & INPUT BEACON CODE';
+            else if (ex.stage === 'DEFEND') document.getElementById('obj-text').innerText = `EXTRACTION DEFENSE: ${Math.ceil(ex.defendTimer / 1000)}s`;
+            else document.getElementById('obj-text').innerText = 'EXTRACTION READY: ENTER GREEN ZONE';
+        }
     }
 
     if (keys['Control']) {
@@ -652,27 +827,48 @@ function checkSequence(key) {
     if (sequenceTarget === 'STRATAGEM') {
         currentSequence.push(key);
         renderTerminalSequence();
-        
+
         const possible = activeStratagems.filter(s => s.seq.slice(0, currentSequence.length).every((k, i) => k === currentSequence[i]));
-        
         if (possible.length === 0) {
-            currentSequence = []; 
+            currentSequence = [];
             renderTerminalSequence();
             return;
         }
-        
+
         const match = possible.find(s => s.seq.length === currentSequence.length);
         if (match && cooldowns[match.id] <= 0) {
-            activeMarkers.push({ 
-                x: mouse.worldX, y: mouse.worldY, 
-                timer: match.delay, id: match.id, 
-                color: match.color, angle: player.angle, 
-                impacted: false, called: false 
+            activeMarkers.push({
+                x: mouse.worldX, y: mouse.worldY,
+                timer: match.delay, id: match.id,
+                color: match.color, angle: player.angle,
+                impacted: false, called: false
             });
-            cooldowns[match.id] = match.cooldown; 
-            currentSequence = []; 
-            document.getElementById('sequence-display').style.display = 'none'; 
+            cooldowns[match.id] = match.cooldown;
+            currentSequence = [];
             sequenceTarget = null;
+            document.getElementById('seq-title').innerText = 'INPUTTING...';
+            document.getElementById('sequence-display').style.display = 'none';
+        }
+        return;
+    }
+
+    if (sequenceTarget === 'OBJECTIVE' && objectiveInput) {
+        currentSequence.push(key);
+        renderTerminalSequence();
+        const valid = objectiveInput.code.slice(0, currentSequence.length).every((k, i) => k === currentSequence[i]);
+        if (!valid) {
+            currentSequence = [];
+            renderTerminalSequence();
+            return;
+        }
+
+        if (currentSequence.length === objectiveInput.code.length) {
+            objectiveInput.onComplete();
+            objectiveInput = null;
+            currentSequence = [];
+            sequenceTarget = null;
+            document.getElementById('seq-title').innerText = 'INPUTTING...';
+            document.getElementById('sequence-display').style.display = 'none';
         }
     }
 }
@@ -689,11 +885,16 @@ function startReload() {
 window.addEventListener('keydown', e => {
     if (e.key === 'Tab') { e.preventDefault(); mapOpen = !mapOpen; document.getElementById('minimap-container').classList.toggle('active', mapOpen); }
     keys[e.key] = true;
-    if (e.key === 'Control') { 
+    if (e.key === 'Control' && !sequenceTarget) { 
         sequenceTarget = 'STRATAGEM'; 
         currentSequence = [];
+        document.getElementById('seq-title').innerText = 'STRATAGEM INPUT';
         document.getElementById('sequence-display').style.display = 'flex'; 
         renderTerminalSequence();
+    }
+    if ((e.key === 'e' || e.key === 'E') && !sequenceTarget) {
+        const interactable = findNearestInteractable();
+        if (interactable) beginObjectiveInput(interactable);
     }
     if (e.key.startsWith('Arrow') && sequenceTarget) { e.preventDefault(); checkSequence(e.key); }
     if (e.key === 'r') startReload();
@@ -703,7 +904,9 @@ window.addEventListener('keyup', e => {
     if (e.key === 'Control') { 
         document.getElementById('sequence-display').style.display = 'none'; 
         sequenceTarget = null; 
+        objectiveInput = null;
         currentSequence = []; 
+        document.getElementById('seq-title').innerText = 'INPUTTING...';
     }
 });
 window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
