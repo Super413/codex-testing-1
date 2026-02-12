@@ -132,22 +132,13 @@ function startDeployment() {
         list.appendChild(div);
     });
     
-    const objectiveCodeLengths = {
-        extraction: 4,
-        terminalA: 3,
-        terminalB: 4,
-        arm: 3,
-        launch: 6
-    };
-
     missionState = {
         id: selectedMissionId,
         complete: false,
         extracted: false,
-        objectiveCodeLengths,
         extraction: {
             x: 0, y: 0, radius: 120, stage: 'LOCKED', defendTimer: 0,
-            code: generateRandomCode(objectiveCodeLengths.extraction)
+            code: ['ArrowUp', 'ArrowDown', 'ArrowRight', 'ArrowLeft']
         },
         icbm: selectedMissionId === 'icbm'
             ? {
@@ -156,8 +147,8 @@ function startDeployment() {
                 silo: null,
                 openingTimer: 0,
                 countdown: 0,
-                armCode: generateRandomCode(objectiveCodeLengths.arm),
-                launchCode: generateRandomCode(objectiveCodeLengths.launch)
+                armCode: ['ArrowUp', 'ArrowRight', 'ArrowDown'],
+                launchCode: ['ArrowUp', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
             }
             : null
     };
@@ -171,13 +162,6 @@ function startDeployment() {
 }
 
 function getKeyChar(k) { return { 'ArrowUp':'↑', 'ArrowDown':'↓', 'ArrowLeft':'←', 'ArrowRight':'→' }[k] || k; }
-
-function generateRandomCode(length) {
-    const dirs = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
-    const code = [];
-    for (let i = 0; i < length; i++) code.push(dirs[Math.floor(Math.random() * dirs.length)]);
-    return code;
-}
 
 function generateWorld() {
     obstacles = []; outposts = []; bugHoles = []; enemies = []; objectives = [];
@@ -219,7 +203,7 @@ function generateWorld() {
                 y: 500 + Math.random() * (CONFIG.world.height - 1000),
                 radius: 80,
                 enabled: false,
-                code: generateRandomCode(i === 0 ? missionState.objectiveCodeLengths.terminalA : missionState.objectiveCodeLengths.terminalB)
+                code: i === 0 ? ['ArrowUp', 'ArrowLeft', 'ArrowDown'] : ['ArrowRight', 'ArrowDown', 'ArrowLeft']
             });
         }
     }
@@ -577,7 +561,7 @@ function beginObjectiveInput(interactable) {
     sequenceTarget = 'OBJECTIVE';
     currentSequence = [];
     objectiveInput = interactable;
-    document.getElementById('seq-title').innerText = `${interactable.label} [LEN ${interactable.code.length}]`;
+    document.getElementById('seq-title').innerText = `${interactable.label} [ARROWS]`;
     document.getElementById('sequence-display').style.display = 'flex';
     renderTerminalSequence();
 }
