@@ -18,7 +18,12 @@ const ALL_STRATAGEMS = [
     { id: 'flamethrower', name: 'FL-24 Flamethrower', seq: ['ArrowDown', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'ArrowUp'], cooldown: 45000, delay: 2000, color: '#3b82f6', type: 'support_pod', weapon: 'flamethrower' },
     { id: 'mg_sentry', name: 'A/MG-43 Sentry', seq: ['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowRight', 'ArrowUp'], cooldown: 90000, delay: 2000, color: '#4ade80', type: 'sentry', variant: 'mg' },
     { id: 'gatling_sentry', name: 'A/G-16 Gatling Sentry', seq: ['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'ArrowUp'], cooldown: 110000, delay: 2000, color: '#22c55e', type: 'sentry', variant: 'gatling' },
-    { id: 'resupply', name: 'Resupply Pod', seq: ['ArrowDown', 'ArrowDown', 'ArrowUp', 'ArrowRight'], cooldown: 25000, delay: 2000, color: '#4ade80', type: 'supply' }
+    { id: 'resupply', name: 'Resupply Pod', seq: ['ArrowDown', 'ArrowDown', 'ArrowUp', 'ArrowRight'], cooldown: 25000, delay: 2000, color: '#4ade80', type: 'supply' },
+    { id: 'orbital_gas', name: 'Orbital Gas Strike', seq: ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'], cooldown: 26000, delay: 1200, radius: 180, damage: 45, color: '#84cc16', type: 'gas' },
+    { id: 'railcannon', name: 'Orbital Railcannon', seq: ['ArrowRight', 'ArrowUp', 'ArrowDown', 'ArrowDown'], cooldown: 50000, delay: 900, radius: 110, damage: 4200, color: '#f59e0b', type: 'strike' },
+    { id: 'cluster_bomb', name: 'Eagle Cluster Bomb', seq: ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'], cooldown: 22000, delay: 1500, radius: 120, damage: 260, color: '#fb7185', type: 'cluster' },
+    { id: 'shield_relay', name: 'Shield Relay', seq: ['ArrowDown', 'ArrowRight', 'ArrowLeft', 'ArrowUp'], cooldown: 40000, delay: 1500, color: '#22d3ee', type: 'shield' },
+    { id: 'autocannon', name: 'AC-8 Autocannon', seq: ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowUp'], cooldown: 50000, delay: 2000, color: '#60a5fa', type: 'support_pod', weapon: 'autocannon' }
 ];
 
 const CONFIG = {
@@ -27,7 +32,8 @@ const CONFIG = {
         'liberator': { fireRate: 150, magSize: 30, reloadTime: 1500, damage: 35, type: 'bullet', name: 'LIBERATOR AR' },
         'machinegun': { fireRate: 90, magSize: 150, reloadTime: 3500, damage: 45, type: 'bullet', name: 'MG-43 MACHINE GUN' },
         'flamethrower': { fireRate: 50, magSize: 200, reloadTime: 4000, damage: 15, type: 'flame', name: 'FL-24 FLAMETHROWER' },
-        'eat_17': { fireRate: 500, magSize: 1, reloadTime: 100, damage: 3000, type: 'rocket', disposable: true, name: 'EAT-17 (ONE USE)' }
+        'eat_17': { fireRate: 500, magSize: 1, reloadTime: 100, damage: 3000, type: 'rocket', disposable: true, name: 'EAT-17 (ONE USE)' },
+        'autocannon': { fireRate: 340, magSize: 8, reloadTime: 2500, damage: 420, type: 'rocket', radius: 100, name: 'AC-8 AUTOCANNON' }
     }
 };
 
@@ -58,10 +64,16 @@ let mapOpen = false;
 let missionState = { id: 'exterm', complete: false };
 let missionFx = { launchFlash: 0 };
 let objectiveInput = null;
+let statusFx = { shieldTimer: 0, patrolTimer: 7000 };
 
 const camera = { x: 0, y: 0 };
 const player = {
     x: 200, y: 200, health: 100, ammo: 30, weaponType: 'liberator',
+    primaryWeapon: 'liberator',
+    supportWeapon: null,
+    reserveMags: { primary: 5, support: 0 },
+    loadedAmmo: { primary: 30, support: 0 },
+    activeSlot: 'primary',
     isReloading: false, reloadProgress: 0,
     angle: 0, isDiving: false, diveTime: 0, diveDir: { x: 0, y: 0 },
     grenadeCooldown: 0
@@ -150,8 +162,27 @@ function startDeployment() {
                 armCode: ['ArrowUp', 'ArrowRight', 'ArrowDown'],
                 launchCode: ['ArrowUp', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
             }
+            : null,
+        blackbox: selectedMissionId === 'blackbox'
+            ? {
+                stage: 'RECOVER',
+                caches: [],
+                recovered: 0,
+                uploadSite: null,
+                uploadCode: ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'],
+                uploadTimer: 0
+            }
             : null
     };
+
+    // Reset core loadout state on each deployment.
+    player.primaryWeapon = 'liberator';
+    player.supportWeapon = null;
+    player.weaponType = 'liberator';
+    player.reserveMags = { primary: 5, support: 0 };
+    player.loadedAmmo = { primary: CONFIG.weapons[player.weaponType].magSize, support: 0 };
+    player.activeSlot = 'primary';
+    player.ammo = CONFIG.weapons[player.weaponType].magSize;
 
     generateWorld();
     document.getElementById('loadout-screen').classList.add('hidden');
@@ -163,17 +194,75 @@ function startDeployment() {
 
 function getKeyChar(k) { return { 'ArrowUp':'↑', 'ArrowDown':'↓', 'ArrowLeft':'←', 'ArrowRight':'→' }[k] || k; }
 
+function getActiveWeaponSlot() { return player.activeSlot; }
+
+function applyWeaponSlot(slot) {
+    const key = slot === 'primary' ? player.primaryWeapon : player.supportWeapon;
+    if (!key) return;
+    const prevSlot = player.activeSlot;
+    player.loadedAmmo[prevSlot] = player.ammo;
+    player.activeSlot = slot;
+    player.weaponType = key;
+    const weapon = CONFIG.weapons[key];
+    player.ammo = Math.max(0, Math.min(player.loadedAmmo[slot], weapon.magSize));
+}
+
+function switchWeapon(slot) {
+    if (player.isReloading) return;
+    applyWeaponSlot(slot);
+}
+
+function grantSupportWeapon(weaponId) {
+    player.supportWeapon = weaponId;
+    player.reserveMags.support = 4;
+    player.loadedAmmo.support = CONFIG.weapons[weaponId].magSize;
+    applyWeaponSlot('support');
+}
+
+function spawnEnemy(kind, x, y, targetBias = 'player') {
+    const isBrood = kind === 'BROOD_BRUTE';
+    enemies.push({
+        x,
+        y,
+        health: isBrood ? 260 : 100,
+        speed: isBrood ? 1.15 : 1.8,
+        damage: isBrood ? 0.7 : 0.3,
+        kind,
+        state: targetBias === 'patrol' ? 'PATROL' : 'IDLE',
+        patrolTarget: { x: player.x + (Math.random() - 0.5) * 180, y: player.y + (Math.random() - 0.5) * 180 },
+        detectionMeter: 0,
+        angle: 0
+    });
+}
+
 function generateWorld() {
     obstacles = []; outposts = []; bugHoles = []; enemies = []; objectives = [];
     sentries = []; pods = []; bullets = []; particles = []; activeMarkers = []; eagleShadows = [];
-    for (let i = 0; i < 100; i++) {
-        const x = Math.random() * CONFIG.world.width;
-        const y = Math.random() * CONFIG.world.height;
-        if (Math.hypot(x-player.x, y-player.y) < 300) continue;
-        obstacles.push({ x, y, radius: 30 + Math.random()*60 });
+    // Build coherent terrain as ridge fields instead of random circles.
+    for (let i = 0; i < 24; i++) {
+        const anchorX = 350 + Math.random() * (CONFIG.world.width - 700);
+        const anchorY = 350 + Math.random() * (CONFIG.world.height - 700);
+        let lastX = anchorX;
+        let lastY = anchorY;
+        const segments = 2 + Math.floor(Math.random() * 4);
+        for (let j = 0; j < segments; j++) {
+            const angle = Math.random() * Math.PI * 2;
+            lastX += Math.cos(angle) * (120 + Math.random() * 130);
+            lastY += Math.sin(angle) * (120 + Math.random() * 130);
+            if (Math.hypot(lastX - player.x, lastY - player.y) < 320) continue;
+            const radius = 45 + Math.random() * 40;
+            const points = [];
+            const verts = 7 + Math.floor(Math.random() * 5);
+            for (let k = 0; k < verts; k++) {
+                const a = (k / verts) * Math.PI * 2;
+                const r = radius * (0.75 + Math.random() * 0.4);
+                points.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+            }
+            obstacles.push({ x: Math.max(50, Math.min(CONFIG.world.width - 50, lastX)), y: Math.max(50, Math.min(CONFIG.world.height - 50, lastY)), radius, points });
+        }
     }
 
-    const numOutposts = missionState.id === 'icbm' ? 5 : 8;
+    const numOutposts = missionState.id === 'icbm' ? 5 : missionState.id === 'blackbox' ? 9 : 8;
     for (let i = 0; i < numOutposts; i++) {
         const ox = 600 + Math.random() * (CONFIG.world.width - 1200);
         const oy = 600 + Math.random() * (CONFIG.world.height - 1200);
@@ -204,6 +293,26 @@ function generateWorld() {
                 radius: 80,
                 enabled: false,
                 code: i === 0 ? ['ArrowUp', 'ArrowLeft', 'ArrowDown'] : ['ArrowRight', 'ArrowDown', 'ArrowLeft']
+            });
+        }
+    }
+
+
+    if (missionState.id === 'blackbox' && missionState.blackbox) {
+        const bb = missionState.blackbox;
+        bb.uploadSite = {
+            x: CONFIG.world.width * 0.5 + (Math.random() - 0.5) * 300,
+            y: CONFIG.world.height * 0.5 + (Math.random() - 0.5) * 300,
+            radius: 100
+        };
+        for (let i = 0; i < 3; i++) {
+            const outpost = outposts[Math.floor(Math.random() * outposts.length)];
+            bb.caches.push({
+                x: outpost.x + (Math.random() - 0.5) * 140,
+                y: outpost.y + (Math.random() - 0.5) * 140,
+                radius: 55,
+                recovered: false,
+                code: ['ArrowUp', 'ArrowRight', 'ArrowDown']
             });
         }
     }
@@ -254,18 +363,30 @@ function update(delta) {
                     player.ammo--;
                     lastFireTime = Date.now();
                     if (weapon.disposable) {
-                        player.weaponType = 'liberator';
+                        player.supportWeapon = null;
+                        player.reserveMags.support = 0;
+                        player.loadedAmmo.support = 0;
+                        applyWeaponSlot('primary');
                         player.isReloading = false;
                         player.reloadProgress = 0;
-                        player.ammo = CONFIG.weapons[player.weaponType].magSize;
                     }
                 } 
                 else startReload();
             }
         }
+        player.loadedAmmo[getActiveWeaponSlot()] = player.ammo;
+
         if (player.isReloading) {
             player.reloadProgress += delta;
-            if (player.reloadProgress >= weapon.reloadTime) { player.ammo = weapon.magSize; player.isReloading = false; }
+            if (player.reloadProgress >= weapon.reloadTime) {
+                const slot = getActiveWeaponSlot();
+                if (player.reserveMags[slot] > 0) {
+                    player.reserveMags[slot] -= 1;
+                    player.ammo = weapon.magSize;
+                    player.loadedAmmo[slot] = player.ammo;
+                }
+                player.isReloading = false;
+            }
         }
     }
 
@@ -337,7 +458,7 @@ function fireWeapon(w) {
     const spread = (Math.random()-0.5)*0.1;
     if (w.type === 'bullet') bullets.push({ x: player.x, y: player.y, vx: Math.cos(player.angle+spread)*18, vy: Math.sin(player.angle+spread)*18, life: 60, dmg: w.damage, type: 'bullet' });
     if (w.type === 'flame') bullets.push({ x: player.x, y: player.y, vx: Math.cos(player.angle+spread*3)*9, vy: Math.sin(player.angle+spread*3)*9, life: 35, dmg: w.damage, type: 'flame' });
-    if (w.type === 'rocket') bullets.push({ x: player.x, y: player.y, vx: Math.cos(player.angle)*20, vy: Math.sin(player.angle)*20, life: 140, dmg: w.damage, type: 'rocket', radius: 150 });
+    if (w.type === 'rocket') bullets.push({ x: player.x, y: player.y, vx: Math.cos(player.angle)*20, vy: Math.sin(player.angle)*20, life: 140, dmg: w.damage, type: 'rocket', radius: w.radius || 150 });
 }
 
 function triggerEagleOrOrbital(m) {
@@ -382,7 +503,23 @@ function executeImpact(m) {
     else if (s.type === 'barrage') { for(let i=0; i<15; i++) setTimeout(() => explode(m.x + (Math.random()-0.5)*500, m.y + (Math.random()-0.5)*500, 200, s.damage), i*400); }
     else if (s.type === 'support_pod') pods.push({ x: m.x, y: m.y, weapon: s.weapon, color: s.color });
     else if (s.type === 'sentry') sentries.push({ x: m.x, y: m.y, variant: s.variant, health: 100, lastFire: 0, angle: 0 });
-    else if (s.type === 'supply') { player.health = 100; player.ammo = CONFIG.weapons[player.weaponType].magSize; spawnParticles(player.x, player.y, '#4ade80', 20); }
+    else if (s.type === 'supply') {
+        player.health = 100;
+        player.reserveMags.primary = Math.max(player.reserveMags.primary, 5);
+        if (player.supportWeapon) player.reserveMags.support = Math.max(player.reserveMags.support, 3);
+        player.ammo = CONFIG.weapons[player.weaponType].magSize;
+        spawnParticles(player.x, player.y, '#4ade80', 20);
+    }
+    else if (s.type === 'gas') {
+        for (let i = 0; i < 10; i++) setTimeout(() => explode(m.x + (Math.random() - 0.5) * 180, m.y + (Math.random() - 0.5) * 180, s.radius, s.damage), i * 220);
+    }
+    else if (s.type === 'cluster') {
+        for (let i = 0; i < 16; i++) setTimeout(() => explode(m.x + (Math.random() - 0.5) * 360, m.y + (Math.random() - 0.5) * 360, s.radius, s.damage), i * 65);
+    }
+    else if (s.type === 'shield') {
+        statusFx.shieldTimer = 12000;
+        spawnParticles(player.x, player.y, '#22d3ee', 80);
+    }
     else explode(m.x, m.y, s.radius || 150, s.damage || 1000);
 }
 
@@ -456,7 +593,14 @@ function updateSentries(delta) {
 function updateEnemies(delta) {
     enemies.forEach((e, i) => {
         const dist = Math.hypot(e.x-player.x, e.y-player.y);
-        if (e.state === 'IDLE') {
+        if (e.state === 'PATROL') {
+            const angle = Math.atan2(e.patrolTarget.y - e.y, e.patrolTarget.x - e.x);
+            e.angle = angle;
+            e.x += Math.cos(angle) * (e.speed * 0.8);
+            e.y += Math.sin(angle) * (e.speed * 0.8);
+            if (Math.hypot(e.patrolTarget.x - e.x, e.patrolTarget.y - e.y) < 40) e.patrolTarget = { x: player.x + (Math.random() - 0.5) * 220, y: player.y + (Math.random() - 0.5) * 220 };
+            if (dist < 520) e.state = 'CHASE';
+        } else if (e.state === 'IDLE') {
             if (dist < 450) { e.detectionMeter += delta * 0.002; if(e.detectionMeter >= 1) e.state = 'CHASE'; }
         } else {
             const angle = Math.atan2(player.y-e.y, player.x-e.x);
@@ -470,22 +614,39 @@ function updateEnemies(delta) {
         }
         if (e.health <= 0) { enemies.splice(i, 1); score += 50; spawnParticles(e.x, e.y, '#22c55e', 8); }
     });
-    
+
+
+    statusFx.patrolTimer -= delta;
+    if (statusFx.patrolTimer <= 0) {
+        statusFx.patrolTimer = 7000 + Math.random() * 5000;
+        if (Math.random() < 0.55) {
+            const activeOutposts = outposts.filter(op => bugHoles.some(h => h.health > 0 && Math.hypot(h.x - op.x, h.y - op.y) < op.radius));
+            let spawnX = 0;
+            let spawnY = 0;
+            if (activeOutposts.length && Math.random() < 0.7) {
+                const op = activeOutposts[Math.floor(Math.random() * activeOutposts.length)];
+                spawnX = op.x + (Math.random() - 0.5) * 80;
+                spawnY = op.y + (Math.random() - 0.5) * 80;
+            } else {
+                const edge = Math.floor(Math.random() * 4);
+                if (edge === 0) { spawnX = 20; spawnY = Math.random() * CONFIG.world.height; }
+                if (edge === 1) { spawnX = CONFIG.world.width - 20; spawnY = Math.random() * CONFIG.world.height; }
+                if (edge === 2) { spawnX = Math.random() * CONFIG.world.width; spawnY = 20; }
+                if (edge === 3) { spawnX = Math.random() * CONFIG.world.width; spawnY = CONFIG.world.height - 20; }
+            }
+            const waveSize = 2 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < waveSize; i++) {
+                spawnEnemy(Math.random() < 0.25 ? 'BROOD_BRUTE' : 'SCOUT', spawnX + (Math.random() - 0.5) * 60, spawnY + (Math.random() - 0.5) * 60, 'patrol');
+            }
+        }
+    }
+
+
     bugHoles.forEach(bh => {
         if (bh.health > 0) {
             if (Date.now() - bh.lastSpawn > 10000 && Math.hypot(bh.x-player.x, bh.y-player.y) < 1200) {
                 const isBrood = Math.random() < 0.2;
-                enemies.push({
-                    x: bh.x,
-                    y: bh.y,
-                    health: isBrood ? 260 : 100,
-                    speed: isBrood ? 1.15 : 1.8,
-                    damage: isBrood ? 0.7 : 0.3,
-                    kind: isBrood ? 'BROOD_BRUTE' : 'SCOUT',
-                    state: 'IDLE',
-                    detectionMeter: 0,
-                    angle: 0
-                });
+                spawnEnemy(isBrood ? 'BROOD_BRUTE' : 'SCOUT', bh.x, bh.y);
                 bh.lastSpawn = Date.now();
             }
         }
@@ -496,8 +657,7 @@ function updatePods(delta) {
     for (let i = pods.length - 1; i >= 0; i--) {
         const p = pods[i];
         if (Math.hypot(player.x - p.x, player.y - p.y) < 50) {
-            player.weaponType = p.weapon;
-            player.ammo = CONFIG.weapons[p.weapon].magSize;
+            grantSupportWeapon(p.weapon);
             pods.splice(i, 1);
         }
     }
@@ -534,6 +694,38 @@ function findNearestInteractable() {
                 label: 'ICBM LAUNCH AUTH',
                 code: icbm.launchCode,
                 onComplete: () => { icbm.stage = 'COUNTDOWN'; icbm.countdown = 10000; spawnParticles(icbm.silo.x, icbm.silo.y, '#facc15', 80); }
+            });
+        }
+    }
+
+    if (missionState.id === 'blackbox' && missionState.blackbox && !missionState.complete) {
+        const bb = missionState.blackbox;
+        if (bb.stage === 'RECOVER') {
+            bb.caches.forEach((cache, idx) => {
+                if (!cache.recovered) {
+                    options.push({
+                        x: cache.x, y: cache.y, radius: cache.radius + 30,
+                        label: `DATA CORE ${idx + 1}`,
+                        code: cache.code,
+                        onComplete: () => {
+                            cache.recovered = true;
+                            bb.recovered += 1;
+                            if (bb.recovered >= bb.caches.length) bb.stage = 'UPLOAD_READY';
+                            spawnParticles(cache.x, cache.y, '#facc15', 30);
+                        }
+                    });
+                }
+            });
+        } else if (bb.stage === 'UPLOAD_READY') {
+            options.push({
+                x: bb.uploadSite.x, y: bb.uploadSite.y, radius: bb.uploadSite.radius + 30,
+                label: 'START DATA UPLINK',
+                code: bb.uploadCode,
+                onComplete: () => {
+                    bb.stage = 'UPLOADING';
+                    bb.uploadTimer = 30000;
+                    spawnParticles(bb.uploadSite.x, bb.uploadSite.y, '#38bdf8', 70);
+                }
             });
         }
     }
@@ -594,6 +786,18 @@ function updateMission(delta) {
                     missionState.extraction.stage = 'AVAILABLE';
                 }
             }
+        } else if (missionState.id === 'blackbox' && missionState.blackbox) {
+            const bb = missionState.blackbox;
+            if (bb.stage === 'UPLOADING') {
+                bb.uploadTimer = Math.max(0, bb.uploadTimer - delta);
+                if (Math.random() < 0.2) spawnParticles(bb.uploadSite.x, bb.uploadSite.y, '#38bdf8', 3);
+                if (bb.uploadTimer <= 0) {
+                    bb.stage = 'DONE';
+                    missionState.complete = true;
+                    score += 2800;
+                    missionState.extraction.stage = 'AVAILABLE';
+                }
+            }
         } else {
             const alive = bugHoles.filter(h => h.health > 0).length;
             if (alive === 0) {
@@ -621,8 +825,9 @@ function updateMission(delta) {
 function explode(x, y, radius, damage) {
     spawnParticles(x, y, '#ff8800', 30);
     enemies.forEach(e => { if(Math.hypot(e.x-x, e.y-y) < radius) e.health -= damage; });
+
     bugHoles.forEach(bh => { if(bh.health > 0 && Math.hypot(bh.x-x, bh.y-y) < radius) { bh.health -= damage; if(bh.health <= 0) score += 500; } });
-    if (Math.hypot(player.x-x, player.y-y) < radius) player.health -= damage * 0.05;
+    if (Math.hypot(player.x-x, player.y-y) < radius) player.health -= statusFx.shieldTimer > 0 ? damage * 0.01 : damage * 0.05;
 }
 
 function movePlayer(mx, my) {
@@ -824,6 +1029,20 @@ function drawMinimap() {
         }
     }
 
+
+    if (missionState.id === 'blackbox' && missionState.blackbox) {
+        missionState.blackbox.caches.forEach(cache => {
+            if (!cache.recovered) {
+                mCtx.fillStyle = '#facc15';
+                mCtx.fillRect(cache.x * scale - 3, cache.y * scale - 3, 6, 6);
+            }
+        });
+        mCtx.strokeStyle = '#38bdf8';
+        mCtx.beginPath();
+        mCtx.arc(missionState.blackbox.uploadSite.x * scale, missionState.blackbox.uploadSite.y * scale, 7, 0, Math.PI * 2);
+        mCtx.stroke();
+    }
+
     if (missionState.extraction) {
         mCtx.strokeStyle = '#4ade80';
         mCtx.setLineDash([4, 3]);
@@ -845,12 +1064,19 @@ function spawnParticles(x, y, color, count) { for(let i=0; i<count; i++) particl
 
 function updateUI() {
     const weapon = CONFIG.weapons[player.weaponType];
+    statusFx.shieldTimer = Math.max(0, statusFx.shieldTimer - 16.6);
+    player.health = Math.max(0, Math.min(100, player.health));
     document.getElementById('health-fill').style.width = player.health + '%';
     document.getElementById('ammo-fill').style.width = (player.ammo / weapon.magSize) * 100 + '%';
     document.getElementById('grenade-fill').style.width = (1 - player.grenadeCooldown / 5000) * 100 + '%';
-    document.getElementById('weapon-name').innerText = weapon.name;
+    document.getElementById('weapon-name').innerText = `${weapon.name}${statusFx.shieldTimer > 0 ? ' [SHIELDED]' : ''}`;
     document.getElementById('score-val').innerText = score;
+    document.getElementById('reserve-text').innerText = `PRIMARY[1]: ${player.reserveMags.primary} mags | SUPPORT[2]: ${player.supportWeapon ? `${player.reserveMags.support} mags` : 'NONE'}`;
     document.getElementById('timer-val').innerText = new Date(Date.now() - startTime).toISOString().substr(14, 5);
+    document.getElementById('ammo-text').innerText = `${player.ammo}/${weapon.magSize}`;
+    document.getElementById('health-text').innerText = `${Math.ceil(player.health)}/100`;
+    document.getElementById('grenade-text').innerText = player.grenadeCooldown <= 0 ? 'READY' : `${Math.ceil(player.grenadeCooldown / 1000)}s`;
+    document.getElementById('reload-indicator').innerText = player.isReloading ? `RELOADING ${Math.ceil((weapon.reloadTime - player.reloadProgress) / 1000)}s` : ''; 
     
     if (missionState.extracted) {
         document.getElementById('obj-text').innerText = 'MISSION COMPLETE: EXTRACTION SUCCESSFUL';
@@ -872,6 +1098,18 @@ function updateUI() {
             document.getElementById('obj-text').innerText = 'INPUT FINAL LAUNCH AUTH CODE AT SILO [E]';
         } else if (icbm.stage === 'COUNTDOWN') {
             document.getElementById('obj-text').innerText = `ICBM LAUNCH COUNTDOWN: ${Math.ceil(icbm.countdown / 1000)}s`;
+        }
+    } else if (missionState.id === 'blackbox' && missionState.blackbox) {
+        const bb = missionState.blackbox;
+        if (!missionState.complete) {
+            if (bb.stage === 'RECOVER') document.getElementById('obj-text').innerText = `RECOVER DATA CORES: ${bb.recovered}/${bb.caches.length}`;
+            else if (bb.stage === 'UPLOAD_READY') document.getElementById('obj-text').innerText = 'GO TO UPLINK SITE AND ENTER CODE [E]';
+            else document.getElementById('obj-text').innerText = `UPLINK IN PROGRESS: ${Math.ceil(bb.uploadTimer / 1000)}s`;
+        } else {
+            const ex = missionState.extraction;
+            if (ex.stage === 'AVAILABLE') document.getElementById('obj-text').innerText = 'OBJECTIVE COMPLETE: FIND EXTRACTION & INPUT BEACON CODE';
+            else if (ex.stage === 'DEFEND') document.getElementById('obj-text').innerText = `EXTRACTION DEFENSE: ${Math.ceil(ex.defendTimer / 1000)}s`;
+            else document.getElementById('obj-text').innerText = 'EXTRACTION READY: ENTER GREEN ZONE';
         }
     } else {
         const alive = bugHoles.filter(h => h.health > 0).length;
@@ -959,7 +1197,8 @@ function checkSequence(key) {
 
 function startReload() {
     const weapon = CONFIG.weapons[player.weaponType];
-    if (weapon.disposable) return;
+    const slot = getActiveWeaponSlot();
+    if (weapon.disposable || player.reserveMags[slot] <= 0) return;
     if (!player.isReloading) {
         player.isReloading = true;
         player.reloadProgress = 0;
@@ -981,7 +1220,9 @@ window.addEventListener('keydown', e => {
         if (interactable) beginObjectiveInput(interactable);
     }
     if (e.key.startsWith('Arrow') && sequenceTarget) { e.preventDefault(); checkSequence(e.key); }
-    if (e.key === 'r') startReload();
+    if (e.key === 'r' || e.key === 'R') startReload();
+    if (e.key === '1') switchWeapon('primary');
+    if (e.key === '2') switchWeapon('support');
 });
 window.addEventListener('keyup', e => {
     keys[e.key] = false;
