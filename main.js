@@ -153,7 +153,7 @@ function startDeployment() {
         extracted: false,
         extraction: {
             x: 0, y: 0, radius: 120, stage: 'LOCKED', defendTimer: 0,
-            code: getRandomCode(4)
+            code: getRandomCode(8)
         },
         icbm: selectedMissionId === 'icbm'
             ? {
@@ -162,8 +162,8 @@ function startDeployment() {
                 silo: null,
                 openingTimer: 0,
                 countdown: 0,
-                armCode: getRandomCode(3),
-                launchCode: getRandomCode(6)
+                armCode: getRandomCode(6),
+                launchCode: getRandomCode(12)
             }
             : null,
         blackbox: selectedMissionId === 'blackbox'
@@ -172,7 +172,7 @@ function startDeployment() {
                 caches: [],
                 recovered: 0,
                 uploadSite: null,
-                uploadCode: getRandomCode(4),
+                uploadCode: getRandomCode(6),
                 uploadTimer: 0
             }
             : null
@@ -322,7 +322,7 @@ function generateWorld() {
                 y: 500 + Math.random() * (CONFIG.world.height - 1000),
                 radius: 80,
                 enabled: false,
-                code: getRandomCode(3)
+                code: getRandomCode(6)
             });
         }
     }
@@ -342,7 +342,7 @@ function generateWorld() {
                 y: outpost.y + (Math.random() - 0.5) * 140,
                 radius: 55,
                 recovered: false,
-                code: getRandomCode(3)
+                code: getRandomCode(5)
             });
         }
     }
