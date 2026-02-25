@@ -65,6 +65,7 @@ let missionState = { id: 'exterm', complete: false };
 let missionFx = { launchFlash: 0 };
 let objectiveInput = null;
 let statusFx = { shieldTimer: 0, patrolTimer: 7000 };
+let missionStats = { kills: 0, stratagemsUsed: 0, holesSealed: 0, objectivesCompleted: 0 };
 
 const camera = { x: 0, y: 0 };
 const player = {
@@ -91,6 +92,8 @@ function bindMenuEventHandlers() {
 
     document.getElementById('mission-next-btn').addEventListener('click', showLoadout);
     document.getElementById('deploy-btn').addEventListener('click', startDeployment);
+    const doneBtn = document.getElementById('back-to-menu-btn');
+    if (doneBtn) doneBtn.addEventListener('click', () => window.location.reload());
 }
 
 // UI Navigation
@@ -150,7 +153,7 @@ function startDeployment() {
         extracted: false,
         extraction: {
             x: 0, y: 0, radius: 120, stage: 'LOCKED', defendTimer: 0,
-            code: ['ArrowUp', 'ArrowDown', 'ArrowRight', 'ArrowLeft']
+            code: getRandomCode(4)
         },
         icbm: selectedMissionId === 'icbm'
             ? {
@@ -159,8 +162,8 @@ function startDeployment() {
                 silo: null,
                 openingTimer: 0,
                 countdown: 0,
-                armCode: ['ArrowUp', 'ArrowRight', 'ArrowDown'],
-                launchCode: ['ArrowUp', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
+                armCode: getRandomCode(3),
+                launchCode: getRandomCode(6)
             }
             : null,
         blackbox: selectedMissionId === 'blackbox'
@@ -169,11 +172,14 @@ function startDeployment() {
                 caches: [],
                 recovered: 0,
                 uploadSite: null,
-                uploadCode: ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'],
+                uploadCode: getRandomCode(4),
                 uploadTimer: 0
             }
             : null
     };
+
+    missionStats = { kills: 0, stratagemsUsed: 0, holesSealed: 0, objectivesCompleted: 0 };
+    document.getElementById('mission-complete-screen').classList.add('hidden');
 
     // Reset core loadout state on each deployment.
     player.primaryWeapon = 'liberator';
@@ -193,6 +199,26 @@ function startDeployment() {
 }
 
 function getKeyChar(k) { return { 'ArrowUp':'↑', 'ArrowDown':'↓', 'ArrowLeft':'←', 'ArrowRight':'→' }[k] || k; }
+
+function getRandomCode(length) {
+    const arrows = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+    return Array.from({ length }, () => arrows[Math.floor(Math.random() * arrows.length)]);
+}
+
+function getMissionLabel() {
+    return missionState.id === 'icbm' ? 'ICBM LAUNCH' : missionState.id === 'blackbox' ? 'BLACK BOX RETRIEVAL' : 'EXTERMINATE';
+}
+
+function showMissionCompleteScreen() {
+    document.getElementById('mc-mission').innerText = getMissionLabel();
+    document.getElementById('mc-time').innerText = new Date(Date.now() - startTime).toISOString().substr(14, 5);
+    document.getElementById('mc-kills').innerText = missionStats.kills;
+    document.getElementById('mc-objectives').innerText = missionStats.objectivesCompleted;
+    document.getElementById('mc-stratagems').innerText = missionStats.stratagemsUsed;
+    document.getElementById('mc-holes').innerText = missionStats.holesSealed;
+    document.getElementById('mc-score').innerText = score;
+    document.getElementById('mission-complete-screen').classList.remove('hidden');
+}
 
 function getActiveWeaponSlot() { return player.activeSlot; }
 
@@ -221,6 +247,9 @@ function grantSupportWeapon(weaponId) {
 
 function spawnEnemy(kind, x, y, targetBias = 'player') {
     const isBrood = kind === 'BROOD_BRUTE';
+    const towardPlayer = Math.atan2(player.y - y, player.x - x);
+    const patrolHeading = towardPlayer + (Math.random() - 0.5) * 0.9;
+    const patrolDistance = 650 + Math.random() * 220;
     enemies.push({
         x,
         y,
@@ -229,7 +258,8 @@ function spawnEnemy(kind, x, y, targetBias = 'player') {
         damage: isBrood ? 0.7 : 0.3,
         kind,
         state: targetBias === 'patrol' ? 'PATROL' : 'IDLE',
-        patrolTarget: { x: player.x + (Math.random() - 0.5) * 180, y: player.y + (Math.random() - 0.5) * 180 },
+        patrolHeading,
+        patrolTarget: { x: x + Math.cos(patrolHeading) * patrolDistance, y: y + Math.sin(patrolHeading) * patrolDistance },
         detectionMeter: 0,
         angle: 0
     });
@@ -292,7 +322,7 @@ function generateWorld() {
                 y: 500 + Math.random() * (CONFIG.world.height - 1000),
                 radius: 80,
                 enabled: false,
-                code: i === 0 ? ['ArrowUp', 'ArrowLeft', 'ArrowDown'] : ['ArrowRight', 'ArrowDown', 'ArrowLeft']
+                code: getRandomCode(3)
             });
         }
     }
@@ -312,7 +342,7 @@ function generateWorld() {
                 y: outpost.y + (Math.random() - 0.5) * 140,
                 radius: 55,
                 recovered: false,
-                code: ['ArrowUp', 'ArrowRight', 'ArrowDown']
+                code: getRandomCode(3)
             });
         }
     }
@@ -598,10 +628,16 @@ function updateEnemies(delta) {
             e.angle = angle;
             e.x += Math.cos(angle) * (e.speed * 0.8);
             e.y += Math.sin(angle) * (e.speed * 0.8);
-            if (Math.hypot(e.patrolTarget.x - e.x, e.patrolTarget.y - e.y) < 40) e.patrolTarget = { x: player.x + (Math.random() - 0.5) * 220, y: player.y + (Math.random() - 0.5) * 220 };
-            if (dist < 520) e.state = 'CHASE';
+            if (Math.hypot(e.patrolTarget.x - e.x, e.patrolTarget.y - e.y) < 40) {
+                e.patrolHeading += (Math.random() - 0.5) * 0.45;
+                e.patrolTarget = {
+                    x: e.x + Math.cos(e.patrolHeading) * (420 + Math.random() * 280),
+                    y: e.y + Math.sin(e.patrolHeading) * (420 + Math.random() * 280)
+                };
+            }
+            if (dist < 364) e.state = 'CHASE';
         } else if (e.state === 'IDLE') {
-            if (dist < 450) { e.detectionMeter += delta * 0.002; if(e.detectionMeter >= 1) e.state = 'CHASE'; }
+            if (dist < 315) { e.detectionMeter += delta * 0.002; if(e.detectionMeter >= 1) e.state = 'CHASE'; }
         } else {
             const angle = Math.atan2(player.y-e.y, player.x-e.x);
             e.angle = angle;
@@ -612,7 +648,7 @@ function updateEnemies(delta) {
             }
             else { player.health -= e.damage || 0.3; }
         }
-        if (e.health <= 0) { enemies.splice(i, 1); score += 50; spawnParticles(e.x, e.y, '#22c55e', 8); }
+        if (e.health <= 0) { enemies.splice(i, 1); score += 50; missionStats.kills += 1; spawnParticles(e.x, e.y, '#22c55e', 8); }
     });
 
 
@@ -818,6 +854,8 @@ function updateMission(delta) {
         if (ex.stage === 'READY' && Math.hypot(player.x - ex.x, player.y - ex.y) < ex.radius) {
             missionState.extracted = true;
             score += 2000;
+            gameState = 'MISSION_COMPLETE';
+            showMissionCompleteScreen();
         }
     }
 }
@@ -826,7 +864,15 @@ function explode(x, y, radius, damage) {
     spawnParticles(x, y, '#ff8800', 30);
     enemies.forEach(e => { if(Math.hypot(e.x-x, e.y-y) < radius) e.health -= damage; });
 
-    bugHoles.forEach(bh => { if(bh.health > 0 && Math.hypot(bh.x-x, bh.y-y) < radius) { bh.health -= damage; if(bh.health <= 0) score += 500; } });
+    bugHoles.forEach(bh => {
+        if (bh.health > 0 && Math.hypot(bh.x - x, bh.y - y) < radius) {
+            bh.health -= damage;
+            if (bh.health <= 0) {
+                score += 500;
+                missionStats.holesSealed += 1;
+            }
+        }
+    });
     if (Math.hypot(player.x-x, player.y-y) < radius) player.health -= statusFx.shieldTimer > 0 ? damage * 0.01 : damage * 0.05;
 }
 
@@ -919,6 +965,31 @@ function draw() {
             ctx.fillText('ICBM SILO', obj.x, obj.y - obj.radius - 28);
         }
     });
+
+    // Black Box mission objectives are rendered in-world for better readability.
+    if (missionState.id === 'blackbox' && missionState.blackbox) {
+        const bb = missionState.blackbox;
+        bb.caches.forEach((cache, idx) => {
+            if (!cache.recovered) {
+                ctx.fillStyle = '#facc15';
+                ctx.fillRect(cache.x - 14, cache.y - 14, 28, 28);
+                ctx.fillStyle = '#111827';
+                ctx.font = 'bold 10px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(`CORE ${idx + 1}`, cache.x, cache.y + 4);
+            }
+        });
+
+        ctx.strokeStyle = bb.stage === 'UPLOADING' ? '#22d3ee' : '#38bdf8';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(bb.uploadSite.x, bb.uploadSite.y, bb.uploadSite.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        ctx.fillStyle = '#e0f2fe';
+        ctx.font = 'bold 11px monospace';
+        ctx.fillText('UPLINK', bb.uploadSite.x, bb.uploadSite.y - bb.uploadSite.radius - 12);
+    }
     
     const ex = missionState.extraction;
     if (missionState.complete && ex && !missionState.extracted) {
@@ -1166,6 +1237,7 @@ function checkSequence(key) {
                 impacted: false, called: false
             });
             cooldowns[match.id] = match.cooldown;
+            missionStats.stratagemsUsed += 1;
             currentSequence = [];
             sequenceTarget = null;
             document.getElementById('seq-title').innerText = 'INPUTTING...';
@@ -1186,6 +1258,7 @@ function checkSequence(key) {
 
         if (currentSequence.length === objectiveInput.code.length) {
             objectiveInput.onComplete();
+            missionStats.objectivesCompleted += 1;
             objectiveInput = null;
             currentSequence = [];
             sequenceTarget = null;

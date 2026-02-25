@@ -39,6 +39,20 @@
         <button id="deploy-btn" disabled>PREPARE FOR DROP</button>
     </div>
 
+    <div id="mission-complete-screen" class="overlay-screen hidden">
+        <h1 style="color: var(--ui-yellow); letter-spacing: 4px;">MISSION COMPLETE</h1>
+        <div class="stats-box" style="max-width:460px; margin:0 auto 20px auto; text-align:left;">
+            <div>MISSION: <span id="mc-mission">-</span></div>
+            <div>TIME: <span id="mc-time">00:00</span></div>
+            <div>KILLS: <span id="mc-kills">0</span></div>
+            <div>OBJECTIVES DONE: <span id="mc-objectives">0</span></div>
+            <div>STRATAGEMS USED: <span id="mc-stratagems">0</span></div>
+            <div>BUG HOLES SEALED: <span id="mc-holes">0</span></div>
+            <div>SCORE: <span id="mc-score">0</span></div>
+        </div>
+        <button id="back-to-menu-btn" type="button">RETURN TO MENU</button>
+    </div>
+
     <div id="ui-layer">
         <div style="display: flex; justify-content: space-between; pointer-events: none;">
             <div class="stats-box">
